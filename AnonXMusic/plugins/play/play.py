@@ -4,7 +4,6 @@ from AnonXMusic.utils.decorators.language import languageCB
 from AnonXMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-# Import YouTubeAPI safely inside the handler
 @app.on_message(filters.command(["play", "p"]) & ~BANNED_USERS)
 @languageCB
 async def play_song(client, message, _):
@@ -13,30 +12,32 @@ async def play_song(client, message, _):
 
     query = " ".join(message.command[1:])
     if not query:
-        return await message.reply_text("❌ Please provide a song name or link.")
+        return await message.reply_text("❌ Please provide a song name or URL!")
 
-    msg = await message.reply_text("🔎 Searching for your song...")
+    # Search or direct URL
     try:
-        details, track_id = await YouTube.track(query, return_details=True)
+        result = await YouTube.search(query)
+        stream_url = await YouTube.get_stream(result['webpage_url'])
+        is_live = await YouTube.is_live(result['webpage_url'])
     except Exception as e:
-        return await msg.edit_text(f"❌ Failed to process your query: {str(e)}")
+        return await message.reply_text(f"❌ Failed to process your query: {e}")
 
-    # Check if it's live
-    stream_type = "live" if details["live"] else "audio"
+    if is_live:
+        return await message.reply_text("❌ Live streams are not supported for play command!")
 
-    # Call your stream function
-    try:
-        await stream(
-            _,
-            msg,
-            message.from_user.id,
-            details,
-            message.chat.id,
-            message.from_user.first_name,
-            message.chat.id,
-            video=None,
-            streamtype=stream_type,
-            forceplay=None
-        )
-    except Exception as e:
-        return await msg.edit_text(f"❌ Failed to play: {str(e)}")
+    # Send reply
+    await message.reply_text(f"▶️ Playing: {result.get('title', 'Unknown')}\n🎵 Channel: {result.get('uploader', 'Unknown')}")
+
+    # Call your stream function (assume your stream() supports it)
+    await stream(
+        _,
+        message,
+        message.from_user.id,
+        result,
+        message.chat.id,
+        message.from_user.first_name,
+        message.chat.id,
+        video=False,
+        streamtype="song",
+        forceplay=False,
+    )
