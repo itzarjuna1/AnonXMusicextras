@@ -5,35 +5,38 @@ class YouTubeAPI:
     def __init__(self):
         self.loop = asyncio.get_event_loop()
 
-    async def track(self, query, return_details=False):
-        """
-        Search and get video details from YouTube.
-        Supports normal videos and live streams.
-        """
+    async def search(self, query: str):
+        """Search a song on YouTube and return first result"""
         ydl_opts = {
-            "format": "bestaudio/best",
-            "noplaylist": True,
-            "quiet": True,
-            "extract_flat": "in_playlist"
+            'format': 'bestaudio/best',
+            'noplaylist': True,
+            'quiet': True,
+            'default_search': 'ytsearch',
         }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(query, download=False)
+        if 'entries' in info:
+            return info['entries'][0]
+        return info
 
-        def run_ydl():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                return ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
-
-        info = await self.loop.run_in_executor(None, run_ydl)
-
-        if not info:
-            raise Exception("No results found.")
-
-        details = {
-            "title": info.get("title"),
-            "url": info.get("url"),
-            "duration": info.get("duration"),
-            "live": info.get("is_live"),
-            "webpage_url": info.get("webpage_url")
+    async def get_stream(self, url: str):
+        """Get audio stream URL from a YouTube link"""
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
         }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if 'url' in info:
+            return info['url']
+        elif 'entries' in info:
+            return info['entries'][0]['url']
+        else:
+            return None
 
-        if return_details:
-            return details, info.get("id")
-        return details
+    async def is_live(self, url: str):
+        """Check if YouTube link is live"""
+        ydl_opts = {'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return info.get('is_live', False)
