@@ -6,21 +6,15 @@ from AnonXMusic.misc import dbb, heroku
 
 from .logging import LOGGER
 
+# Initialize core features
 dirr()
 git()
 dbb()
 heroku()
 
+# Initialize main app and userbot
 app = Anony()
 userbot = Userbot()
 
-
-from .platforms import *
-
-Apple = AppleAPI()
-Carbon = CarbonAPI()
-SoundCloud = SoundAPI()
-Spotify = SpotifyAPI()
-Resso = RessoAPI()
-Telegram = TeleAPI()
-YouTube = YouTubeAPI()
+# Do NOT instantiate platform APIs here to avoid circular imports
+# Import them only where needed
