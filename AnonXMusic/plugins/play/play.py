@@ -5,121 +5,50 @@ from AnonXMusic.utils.decorators.language import languageCB
 from AnonXMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-
-@app.on_message(filters.command(["play", "song"]) & ~BANNED_USERS)
+@app.on_message(filters.command("play") & ~BANNED_USERS)
 @languageCB
 async def play_song(client, message, _):
-    query = " ".join(message.command[1:])
-    if not query:
+    query = " ".join(message.command[1:]) if len(message.command) > 1 else ""
+    if not query.strip():
         return await message.reply_text(_["play_4"])
 
-    mystic = await message.reply_text(_["play_5"].format(query))
+    mystic = await message.reply_text(_["play_5"].format(query=query or "Unknown Song"))
 
     try:
-        # Try fetching via YouTube API first
         details, vidid = await YouTube.track(query)
     except Exception:
-        # Fallback to yt-dlp/cookies if API fails
-        try:
-            details, vidid = await YouTube.track(query, use_fallback=True)
-        except Exception as e:
-            return await mystic.edit_text(f"❌ {_['play_3']} \n`{str(e)}`")
+        return await mystic.edit_text(_["play_3"])
 
-    # Check if it's a live stream
-    if not details["duration_min"]:
-        try:
-            await stream(
-                _,
-                mystic,
-                message.from_user.id,
-                details,
-                message.chat.id,
-                message.from_user.first_name,
-                message.chat.id,
-                video=True,
-                streamtype="live",
-            )
-        except Exception as e:
-            ex_type = type(e).__name__
-            err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-            return await mystic.edit_text(err)
-        return
+    # Safe handling of None values
+    details["title"] = details.get("title") or "Unknown Title"
+    details["duration_min"] = details.get("duration_min") or "0:00"
+    details["thumb"] = details.get("thumb") or ""
+    details["link"] = details.get("link") or ""
 
-    # Normal song playback
+    if "live" in details["duration_min"].lower():
+        return await mystic.edit_text("» ʟɪᴠᴇ sᴛʀᴇᴀᴍ ᴅᴇᴛᴇᴄᴛᴇᴅ.\n\nᴀʀᴇ ʏᴏᴜ sᴜʀᴇ ʏᴏᴜ ᴡᴀɴɴᴀ ᴘʟᴀʏ ᴛʜɪs ʟɪᴠᴇ sᴛʀᴇᴀᴍ ?")
+
+    try:
+        chat_id, channel = await get_channeplayCB(_, None, message)
+    except Exception:
+        chat_id = message.chat.id
+        channel = None
+
+    user_name = message.from_user.first_name
     try:
         await stream(
             _,
             mystic,
             message.from_user.id,
             details,
-            message.chat.id,
-            message.from_user.first_name,
+            chat_id,
+            user_name,
             message.chat.id,
             video=False,
-            streamtype="music",
+            streamtype="song",
+            forceplay=None,
         )
     except Exception as e:
         ex_type = type(e).__name__
         err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-        await mystic.edit_text(err)
-
-
-@app.on_callback_query(filters.regex("LiveStream") & ~BANNED_USERS)
-@languageCB
-async def play_live_stream(client, CallbackQuery, _):
-    callback_data = CallbackQuery.data.strip()
-    callback_request = callback_data.split(None, 1)[1]
-    vidid, user_id, mode, cplay, fplay = callback_request.split("|")
-    if CallbackQuery.from_user.id != int(user_id):
-        try:
-            return await CallbackQuery.answer(_["playcb_1"], show_alert=True)
-        except:
-            return
-
-    try:
-        chat_id, channel = await get_channeplayCB(_, cplay, CallbackQuery)
-    except:
-        return
-
-    video = True if mode == "v" else None
-    user_name = CallbackQuery.from_user.first_name
-    await CallbackQuery.message.delete()
-    try:
-        await CallbackQuery.answer()
-    except:
-        pass
-
-    mystic = await CallbackQuery.message.reply_text(
-        _["play_2"].format(channel) if channel else _["play_1"]
-    )
-
-    try:
-        details, track_id = await YouTube.track(vidid, True)
-    except:
-        return await mystic.edit_text(_["play_3"])
-
-    ffplay = True if fplay == "f" else None
-    if not details["duration_min"]:
-        try:
-            await stream(
-                _,
-                mystic,
-                user_id,
-                details,
-                chat_id,
-                user_name,
-                CallbackQuery.message.chat.id,
-                video,
-                streamtype="live",
-                forceplay=ffplay,
-            )
-        except Exception as e:
-            ex_type = type(e).__name__
-            err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-            return await mystic.edit_text(err)
-    else:
-        return await mystic.edit_text("» ɴᴏᴛ ᴀ ʟɪᴠᴇ sᴛʀᴇᴀᴍ.")
-    await mystic.delete()
-    
-        
-
+        return await mystic.edit_text(err)
