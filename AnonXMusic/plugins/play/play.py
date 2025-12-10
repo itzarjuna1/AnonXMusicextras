@@ -1,47 +1,42 @@
 from pyrogram import filters
+from AnonXMusic import app
 from AnonXMusic.utils.decorators.language import languageCB
 from AnonXMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-
+# Import YouTubeAPI safely inside the handler
 @app.on_message(filters.command(["play", "p"]) & ~BANNED_USERS)
 @languageCB
 async def play_song(client, message, _):
-    # Import inside function to avoid circular imports
-    from AnonXMusic import YouTube
+    from AnonXMusic.platforms.Youtube import YouTubeAPI
+    YouTube = YouTubeAPI()
 
-    if len(message.command) < 2:
-        return await message.reply_text(_("Please provide a song name or link!"))
+    query = " ".join(message.command[1:])
+    if not query:
+        return await message.reply_text("❌ Please provide a song name or link.")
 
-    query = " ".join(message.command[1:]).strip()
-    user_name = message.from_user.first_name
-    user_id = message.from_user.id
-
-    mystic = await message.reply_text(_("🔎 Searching for your song..."))
-
+    msg = await message.reply_text("🔎 Searching for your song...")
     try:
-        # Fetch song details
-        details, track_id = await YouTube.track(query)
+        details, track_id = await YouTube.track(query, return_details=True)
     except Exception as e:
-        return await mystic.edit_text(f"❌ Failed to process your query: {e}")
+        return await msg.edit_text(f"❌ Failed to process your query: {str(e)}")
 
-    # Live stream check
-    if details.get("is_live"):
-        return await mystic.edit_text("❌ Cannot play live streams.")
+    # Check if it's live
+    stream_type = "live" if details["live"] else "audio"
 
+    # Call your stream function
     try:
         await stream(
             _,
-            mystic,
-            user_id,
+            msg,
+            message.from_user.id,
             details,
             message.chat.id,
-            user_name,
+            message.from_user.first_name,
             message.chat.id,
-            video=False,
-            streamtype="audio",
+            video=None,
+            streamtype=stream_type,
+            forceplay=None
         )
     except Exception as e:
-        ex_type = type(e).__name__
-        err = e if ex_type == "AssistantErr" else _("An error occurred: {}").format(ex_type)
-        return await mystic.edit_text(err)
+        return await msg.edit_text(f"❌ Failed to play: {str(e)}")
