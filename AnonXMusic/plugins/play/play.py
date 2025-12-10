@@ -5,7 +5,6 @@ from AnonXMusic.utils.decorators.language import languageCB
 from AnonXMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-
 @app.on_callback_query(filters.regex("LiveStream") & ~BANNED_USERS)
 @languageCB
 async def play_live_stream(client, CallbackQuery, _):
@@ -32,11 +31,12 @@ async def play_live_stream(client, CallbackQuery, _):
         _["play_2"].format(channel) if channel else _["play_1"]
     )
     try:
-        details, track_id = await YouTube.track(vidid, is_link=True)
-    except:
+        details, track_id = await YouTube.track(vidid, True)
+    except Exception:
         return await mystic.edit_text(_["play_3"])
     ffplay = True if fplay == "f" else None
-    if details["duration_min"] == 0:  # Live stream detected
+    # Handle live stream detection
+    if not details["duration_min"] or details["duration_min"] == "0:00":
         try:
             await stream(
                 _,
@@ -55,7 +55,6 @@ async def play_live_stream(client, CallbackQuery, _):
             err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
             return await mystic.edit_text(err)
     else:
-        # Regular song
         try:
             await stream(
                 _,
@@ -66,46 +65,12 @@ async def play_live_stream(client, CallbackQuery, _):
                 user_name,
                 CallbackQuery.message.chat.id,
                 video,
-                streamtype="song",
+                streamtype="audio",
                 forceplay=ffplay,
             )
         except Exception as e:
             ex_type = type(e).__name__
             err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
             return await mystic.edit_text(err)
-    await mystic.delete()
-
-
-@app.on_message(filters.command("play") & ~BANNED_USERS)
-@languageCB
-async def play_command(client, message, _):
-    query = " ".join(message.command[1:])
-    if not query:
-        return await message.reply_text(_["play_4"])  # No query provided
-    mystic = await message.reply_text(_["play_5"].format(query))
-    try:
-        details, track_id = await YouTube.track(query, is_link=False)
-    except Exception as e:
-        return await mystic.edit_text(_["play_6"])  # Failed to fetch
-    if details["duration_min"] == 0:
-        return await mystic.edit_text("» ʟɪᴠᴇ sᴛʀᴇᴀᴍ ᴅᴇᴛᴇᴄᴛᴇᴅ. ᴀʀᴇ ʏᴏᴜ sᴜʀᴇ ʏᴏᴜ ᴡᴀɴɴᴀ ᴘʟᴀʏ ᴛʜɪs ʟɪᴠᴇ sᴛʀᴇᴀᴍ ?")
-    try:
-        chat_id = message.chat.id
-        user_name = message.from_user.first_name
-        await stream(
-            _,
-            mystic,
-            message.from_user.id,
-            details,
-            chat_id,
-            user_name,
-            chat_id,
-            video=False,
-            streamtype="song",
-        )
-    except Exception as e:
-        ex_type = type(e).__name__
-        err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-        return await mystic.edit_text(err)
     await mystic.delete()
     
