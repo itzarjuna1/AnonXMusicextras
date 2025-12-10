@@ -10,6 +10,9 @@ API_ID = int(getenv("API_ID", "35279715"))  # Default dummy, replace in .env
 API_HASH = getenv("API_HASH", "b4c339216397b5941d88c8617d2dc12b")
 BOT_TOKEN = getenv("BOT_TOKEN", "")
 
+# YOUTUBE_API_KEY
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+
 MONGO_DB_URI = getenv("MONGO_DB_URI", "mongodb+srv://knight4563:knight4563@cluster0.a5br0se.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", "60"))
