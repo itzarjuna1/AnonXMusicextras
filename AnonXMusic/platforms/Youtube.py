@@ -1,49 +1,39 @@
-# AnonXMusic/plugins/play/play.py
-from pyrogram import filters
-from AnonXMusic import YouTube, app
-from AnonXMusic.utils.channelplay import get_channeplayCB
-from AnonXMusic.utils.decorators.language import languageCB
-from AnonXMusic.utils.stream.stream import stream
-from config import BANNED_USERS
+import yt_dlp
+import asyncio
 
-YouTube = YouTubeAPI()
+class YouTubeAPI:
+    def __init__(self):
+        self.loop = asyncio.get_event_loop()
 
-@app.on_callback_query(filters.regex("LiveStream") & ~BANNED_USERS)
-@languageCB
-async def play_live_stream(client, CallbackQuery, _):
-    data = CallbackQuery.data.split(None, 1)[1]
-    vidid, user_id, mode, cplay, fplay = data.split("|")
+    async def track(self, query, return_details=False):
+        """
+        Search and get video details from YouTube.
+        Supports normal videos and live streams.
+        """
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "noplaylist": True,
+            "quiet": True,
+            "extract_flat": "in_playlist"
+        }
 
-    if CallbackQuery.from_user.id != int(user_id):
-        return await CallbackQuery.answer("❌ Not for you!", show_alert=True)
+        def run_ydl():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
 
-    chat_id, channel = await get_channeplayCB(_, cplay, CallbackQuery)
-    await CallbackQuery.message.delete()
-    await CallbackQuery.answer()
+        info = await self.loop.run_in_executor(None, run_ydl)
 
-    mystic = await CallbackQuery.message.reply_text(
-        f"🎵 Loading {channel}" if channel else "🎵 Loading song..."
-    )
+        if not info:
+            raise Exception("No results found.")
 
-    details, track_id = await YouTube.track(vidid, True)
-    if not details:
-        return await mystic.edit_text("❌ Cannot play live streams or unavailable videos.")
+        details = {
+            "title": info.get("title"),
+            "url": info.get("url"),
+            "duration": info.get("duration"),
+            "live": info.get("is_live"),
+            "webpage_url": info.get("webpage_url")
+        }
 
-    ffplay = True if fplay == "f" else None
-    video = True if mode == "v" else None
-
-    try:
-        await stream(
-            _,
-            mystic,
-            int(user_id),
-            details,
-            chat_id,
-            CallbackQuery.from_user.first_name,
-            CallbackQuery.message.chat.id,
-            video,
-            streamtype="song",
-            forceplay=ffplay,
-        )
-    except Exception as e:
-        return await mystic.edit_text(f"❌ Failed: {type(e).__name__}")
+        if return_details:
+            return details, info.get("id")
+        return details
