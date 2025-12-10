@@ -1,105 +1,142 @@
+import asyncio
 import os
 import re
-import asyncio
 from typing import Union
+
 import yt_dlp
-from googleapiclient.discovery import build
 from pyrogram.types import Message
-from config import YOUTUBE_API_KEY
+from youtubesearchpython.__future__ import VideosSearch
+from googleapiclient.discovery import build
+
+from AnonXMusic.utils.database import is_on_off
 from AnonXMusic.utils.formatters import time_to_seconds
+from config import YOUTUBE_API_KEY
+
+
+async def shell_cmd(cmd):
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, errorz = await proc.communicate()
+    if errorz:
+        if "unavailable videos are hidden" in (errorz.decode("utf-8")).lower():
+            return out.decode("utf-8")
+        else:
+            return errorz.decode("utf-8")
+    return out.decode("utf-8")
 
 
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
-        self.listbase = "https://www.youtube.com/playlist?list="
         self.regex = r"(?:youtube\.com|youtu\.be)"
-        self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY) if YOUTUBE_API_KEY else None
+        self.listbase = "https://youtube.com/playlist?list="
+        self.reg = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        self.api_key = YOUTUBE_API_KEY
+        if self.api_key:
+            self.youtube = build("youtube", "v3", developerKey=self.api_key)
+        else:
+            self.youtube = None
 
-    async def track(self, query: str, videoid: bool = False):
-        """
-        Returns track details using YouTube API first, then fallback to yt-dlp.
-        """
+    async def track(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
-            query = self.base + query
+            link = self.base + link
+        if "&" in link:
+            link = link.split("&")[0]
+
         # Try YouTube API first
         if self.youtube:
             try:
-                search_response = self.youtube.search().list(
-                    q=query, part="snippet", maxResults=1, type="video"
+                video_id = link.split("watch?v=")[-1]
+                response = self.youtube.videos().list(
+                    part="snippet,contentDetails",
+                    id=video_id
                 ).execute()
-                item = search_response["items"][0]
-                vidid = item["id"]["videoId"]
+                item = response["items"][0]
                 title = item["snippet"]["title"]
+                duration = item["contentDetails"]["duration"]
+                duration_sec = time_to_seconds(duration)
                 thumbnail = item["snippet"]["thumbnails"]["high"]["url"]
-                duration_min = None  # We'll fetch real duration with yt-dlp
-                # Get duration with yt-dlp
-                proc = await asyncio.create_subprocess_exec(
-                    "yt-dlp",
-                    "--skip-download",
-                    "-j",
-                    f"https://www.youtube.com/watch?v={vidid}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await proc.communicate()
-                import json
-                info = json.loads(stdout.decode())
-                duration_min = info.get("duration") or None
-                duration_sec = int(duration_min) if duration_min else 0
-                yturl = f"https://www.youtube.com/watch?v={vidid}"
+                vidid = video_id
+                yturl = link
                 return {
                     "title": title,
                     "link": yturl,
                     "vidid": vidid,
-                    "duration_min": duration_min,
+                    "duration_min": duration,
                     "thumb": thumbnail,
                 }, vidid
-            except Exception:
-                pass  # fallback
+            except:
+                pass  # fallback to yt-dlp
 
-        # Fallback to yt-dlp search
-        loop = asyncio.get_running_loop()
-        def ytdlp_search():
-            ydl_opts = {"quiet": True, "format": "bestaudio"}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                result = ydl.extract_info(f"ytsearch1:{query}", download=False)["entries"][0]
-                return result
-        try:
-            info = await loop.run_in_executor(None, ytdlp_search)
-            vidid = info["id"]
-            title = info["title"]
-            thumbnail = info["thumbnail"]
-            duration_min = info["duration"]
-            yturl = f"https://www.youtube.com/watch?v={vidid}"
-            return {
-                "title": title,
-                "link": yturl,
-                "vidid": vidid,
-                "duration_min": duration_min,
-                "thumb": thumbnail,
-            }, vidid
-        except Exception as e:
-            return None, None
+        # Fallback using yt_dlp
+        results = VideosSearch(link, limit=1)
+        for result in (await results.next())["result"]:
+            title = result["title"]
+            duration_min = result["duration"]
+            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
+            vidid = result["id"]
+            yturl = result["link"]
+        return {
+            "title": title,
+            "link": yturl,
+            "vidid": vidid,
+            "duration_min": duration_min,
+            "thumb": thumbnail,
+        }, vidid
 
-    async def video(self, link: str):
-        """
-        Returns direct video/audio URL using yt-dlp.
-        """
+    async def download(self, link, format_id=None, title=None, songaudio=False, songvideo=False):
         loop = asyncio.get_running_loop()
-        def ytdl_dl():
+
+        def audio_dl():
             ydl_opts = {
                 "format": "bestaudio/best",
+                "outtmpl": "downloads/%(id)s.%(ext)s",
                 "quiet": True,
-                "nocheckcertificate": True,
-                "geo_bypass": True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                url = info["url"]
-                return url
-        try:
-            return await loop.run_in_executor(None, ytdl_dl)
-        except Exception:
-            return None
+                info = ydl.extract_info(link, download=True)
+                return f"downloads/{info['id']}.{info['ext']}"
+
+        def video_dl():
+            ydl_opts = {
+                "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
+                "outtmpl": "downloads/%(id)s.%(ext)s",
+                "quiet": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(link, download=True)
+                return f"downloads/{info['id']}.{info['ext']}"
+
+        def song_audio_dl():
+            fpath = f"downloads/{title}.%(ext)s"
+            ydl_opts = {
+                "format": str(format_id),  # fixed int.upper() issue
+                "outtmpl": fpath,
+                "quiet": True,
+                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([link])
+
+        def song_video_dl():
+            formats = f"{str(format_id)}+140"
+            fpath = f"downloads/{title}.mp4"
+            ydl_opts = {
+                "format": formats,
+                "outtmpl": fpath,
+                "quiet": True,
+                "merge_output_format": "mp4",
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([link])
+
+        if songvideo:
+            return await loop.run_in_executor(None, song_video_dl)
+        elif songaudio:
+            return await loop.run_in_executor(None, song_audio_dl)
+        else:
+            return await loop.run_in_executor(None, audio_dl)
             
