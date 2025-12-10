@@ -1,42 +1,70 @@
-import yt_dlp
-import asyncio
+from pyrogram import filters
+from AnonXMusic import app
+from AnonXMusic.utils.channelplay import get_channeplayCB
+from AnonXMusic.utils.decorators.language import languageCB
+from AnonXMusic.utils.stream.stream import stream
+from config import BANNED_USERS
 
-class YouTubeAPI:
-    def __init__(self):
-        self.loop = asyncio.get_event_loop()
+@app.on_callback_query(filters.regex("LiveStream") & ~BANNED_USERS)
+@languageCB
+async def play_live_stream(client, CallbackQuery, _):
+    from AnonXMusic.platforms.Youtube import YouTubeAPI  # Local import
+    YouTube = YouTubeAPI()
 
-    async def search(self, query: str):
-        """Search a song on YouTube and return first result"""
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'noplaylist': True,
-            'quiet': True,
-            'default_search': 'ytsearch',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-        if 'entries' in info:
-            return info['entries'][0]
-        return info
+    callback_data = CallbackQuery.data.strip()
+    callback_request = callback_data.split(None, 1)[1]
+    vidid, user_id, mode, cplay, fplay = callback_request.split("|")
 
-    async def get_stream(self, url: str):
-        """Get audio stream URL from a YouTube link"""
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        if 'url' in info:
-            return info['url']
-        elif 'entries' in info:
-            return info['entries'][0]['url']
-        else:
-            return None
+    if CallbackQuery.from_user.id != int(user_id):
+        try:
+            return await CallbackQuery.answer(_["playcb_1"], show_alert=True)
+        except:
+            return
 
-    async def is_live(self, url: str):
-        """Check if YouTube link is live"""
-        ydl_opts = {'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        return info.get('is_live', False)
+    try:
+        chat_id, channel = await get_channeplayCB(_, cplay, CallbackQuery)
+    except:
+        return
+
+    video = True if mode == "v" else None
+    user_name = CallbackQuery.from_user.first_name
+    await CallbackQuery.message.delete()
+
+    try:
+        await CallbackQuery.answer()
+    except:
+        pass
+
+    mystic = await CallbackQuery.message.reply_text(
+        _["play_2"].format(channel) if channel else _["play_1"]
+    )
+
+    try:
+        details, track_id = await YouTube.track(vidid, True)
+    except Exception as e:
+        return await mystic.edit_text(_["play_3"])
+
+    ffplay = True if fplay == "f" else None
+
+    if not details["duration_min"]:
+        try:
+            await stream(
+                _,
+                mystic,
+                user_id,
+                details,
+                chat_id,
+                user_name,
+                CallbackQuery.message.chat.id,
+                video,
+                streamtype="live",
+                forceplay=ffplay,
+            )
+        except Exception as e:
+            ex_type = type(e).__name__
+            err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
+            return await mystic.edit_text(err)
+    else:
+        return await mystic.edit_text("» ɴᴏᴛ ᴀ ʟɪᴠᴇ sᴛʀᴇᴀᴍ.")
+
+    await mystic.delete()
