@@ -1,54 +1,49 @@
+# AnonXMusic/plugins/play/play.py
 from pyrogram import filters
-from pyrogram.types import Message
-
-from AnonXMusic import app, YouTube
+from AnonXMusic import YouTube, app
 from AnonXMusic.utils.channelplay import get_channeplayCB
 from AnonXMusic.utils.decorators.language import languageCB
 from AnonXMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
+YouTube = YouTubeAPI()
 
-@app.on_message(filters.command(["play", "song"]) & ~BANNED_USERS)
+@app.on_callback_query(filters.regex("LiveStream") & ~BANNED_USERS)
 @languageCB
-async def play_song(client, message: Message, _):
-    query = " ".join(message.command[1:]) if len(message.command) > 1 else None
-    if not query:
-        return await message.reply_text("❌ Please provide a song name or URL to play.")
+async def play_live_stream(client, CallbackQuery, _):
+    data = CallbackQuery.data.split(None, 1)[1]
+    vidid, user_id, mode, cplay, fplay = data.split("|")
 
-    mystic = await message.reply_text(_["play_0"])  # "Processing your query..."
+    if CallbackQuery.from_user.id != int(user_id):
+        return await CallbackQuery.answer("❌ Not for you!", show_alert=True)
 
-    try:
-        # Try YouTube API first
-        details, vidid = await YouTube.track(query, videoid=False)
-    except Exception:
-        try:
-            # Fallback: use yt-dlp search
-            details, vidid = await YouTube.track(query, videoid=False, use_ytapi=False)
-        except Exception as e:
-            return await mystic.edit_text(f"❌ Failed to process your query: {str(e)}")
+    chat_id, channel = await get_channeplayCB(_, cplay, CallbackQuery)
+    await CallbackQuery.message.delete()
+    await CallbackQuery.answer()
 
-    # Check for live stream properly
-    is_live = details.get("is_live", False)
-    duration = details.get("duration_sec", 0)
+    mystic = await CallbackQuery.message.reply_text(
+        f"🎵 Loading {channel}" if channel else "🎵 Loading song..."
+    )
 
-    if is_live or duration == 0:
-        return await mystic.edit_text("❌ Live stream detected. Cannot play automatically.")
+    details, track_id = await YouTube.track(vidid, True)
+    if not details:
+        return await mystic.edit_text("❌ Cannot play live streams or unavailable videos.")
 
-    # Normal song
-    chat_id = message.chat.id
-    user_name = message.from_user.first_name
+    ffplay = True if fplay == "f" else None
+    video = True if mode == "v" else None
 
     try:
         await stream(
             _,
             mystic,
-            message.from_user.id,
+            int(user_id),
             details,
             chat_id,
-            user_name,
-            chat_id,
-            video=False,
-            streamtype="audio",
+            CallbackQuery.from_user.first_name,
+            CallbackQuery.message.chat.id,
+            video,
+            streamtype="song",
+            forceplay=ffplay,
         )
     except Exception as e:
-        return await mystic.edit_text(f"❌ Failed to start stream: {str(e)}")
+        return await mystic.edit_text(f"❌ Failed: {type(e).__name__}")
