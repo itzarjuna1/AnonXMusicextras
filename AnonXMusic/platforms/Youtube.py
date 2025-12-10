@@ -10,7 +10,8 @@ from googleapiclient.discovery import build
 
 from AnonXMusic.utils.database import is_on_off
 from AnonXMusic.utils.formatters import time_to_seconds
-from AnonXMusic import YOUTUBE_API_KEY
+
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 
 class YouTubeAPI:
